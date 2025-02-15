@@ -35,7 +35,7 @@ from open_r1.utils.logging import init_wandb_training
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_SYSTEM_PROMPT = """Respond in the following format:
+SYSTEM_PROMPT = """Respond in the following format:
 <reasoning>
 ...
 </reasoning>
@@ -61,7 +61,6 @@ class GRPOScriptArguments(ScriptArguments):
         reward_configs (`dict[str, dict]`):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
-    system_prompt: str = DEFAULT_SYSTEM_PROMPT
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
@@ -147,7 +146,7 @@ def main(
     def make_conversation(example):
         return {
             'prompt': [
-                {'role': 'system', 'content': script_args.system_prompt},
+                {'role': 'system', 'content': SYSTEM_PROMPT},
                 {'role': 'user', 'content': example[script_args.question_key]},
             ],
             'answer': example[script_args.answer_key],
