@@ -15,8 +15,7 @@
 import logging
 import os
 import sys
-from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 import datasets
@@ -28,41 +27,12 @@ from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
 from open_r1.configs import GRPOConfig
-# from open_r1.prompts import get_system_prompt
+from open_r1.prompts import get_system_prompt
 from open_r1.rewards import create_reward_functions
 from open_r1.utils.callbacks import get_callbacks
 from open_r1.utils.wandb_logging import init_wandb_training
 
 logger = logging.getLogger(__name__)
-
-
-SIMPLE_SYSTEM_PROMPT = """Respond in the following format:
-<reasoning>
-...
-</reasoning>
-<answer>
-...
-</answer>
-"""
-
-R1_SYSTEM_PROMPT = """\
-A conversation between User and Assistant. \
-The user asks a question, and the Assistant solves it. \
-The assistant first thinks about the reasoning process in the mind \
-and then provides the user with the answer. \
-The reasoning process and answer are enclosed within \
-<think> </think> and <answer> </answer> tags, respectively, i.e., \
-<think> reasoning process here </think><answer> answer here </answer>"""
-
-
-PROMPT_REGISTRY = {
-    'simple': SIMPLE_SYSTEM_PROMPT,
-    'r1': R1_SYSTEM_PROMPT,
-}
-
-
-def get_system_prompt(name: str):
-    return PROMPT_REGISTRY[name]
 
 
 @dataclass
@@ -103,13 +73,22 @@ class GRPOScriptArguments(ScriptArguments):
             self.system_prompt = get_system_prompt(self.system_prompt_name)
 
 
+def is_primary():
+    return int(os.environ.get('LOCAL_RANK', 0)) == 0
+
+
 def main(
         script_args: GRPOScriptArguments,
         training_args: GRPOConfig,
         model_args: ModelConfig,
 ):
-    if Path(training_args.output_dir).exists():
+    if os.path.exists(training_args.output_dir):
         raise ValueError(f'output_dir already exists: {training_args.output_dir}')
+
+    if is_primary():
+        print('!!! PRIMARY PROCESS !!!', training_args.output_dir)
+
+    return
 
     # Set seed for reproducibility
     set_seed(training_args.seed)
