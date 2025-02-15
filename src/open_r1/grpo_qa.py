@@ -28,28 +28,12 @@ from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
 from open_r1.configs import GRPOConfig
+from open_r1.prompts import get_system_prompt
 from open_r1.rewards import create_reward_functions
 from open_r1.utils.callbacks import get_callbacks
 from open_r1.utils.logging import init_wandb_training
 
 logger = logging.getLogger(__name__)
-
-
-SYSTEM_PROMPT = """Respond in the following format:
-<reasoning>
-...
-</reasoning>
-<answer>
-...
-</answer>
-"""
-
-# SYSTEM_PROMPT = (
-#     "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
-#     "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
-#     "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
-#     "<think> reasoning process here </think><answer> answer here </answer>"
-# )
 
 
 @dataclass
@@ -61,6 +45,8 @@ class GRPOScriptArguments(ScriptArguments):
         reward_configs (`dict[str, dict]`):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
+    system_prompt_name: str = 'simple'
+    system_prompt: Optional[str] = None
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
@@ -83,6 +69,10 @@ class GRPOScriptArguments(ScriptArguments):
             'help': 'Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".'
         },
     )
+
+    def __post_init__(self):
+        if self.system_prompt_name:
+            self.system_prompt = get_system_prompt(self.system_prompt_name)
 
 
 def main(
@@ -146,7 +136,7 @@ def main(
     def make_conversation(example):
         return {
             'prompt': [
-                {'role': 'system', 'content': SYSTEM_PROMPT},
+                {'role': 'system', 'content': script_args.system_prompt},
                 {'role': 'user', 'content': example[script_args.question_key]},
             ],
             'answer': example[script_args.answer_key],
