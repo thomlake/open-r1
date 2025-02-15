@@ -178,3 +178,6 @@ eval_results/
 results/
 
 .vscode/
+
+# Mac
+*.DS_Store
