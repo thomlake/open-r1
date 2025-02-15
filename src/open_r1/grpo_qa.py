@@ -31,7 +31,7 @@ from open_r1.configs import GRPOConfig
 # from open_r1.prompts import get_system_prompt
 from open_r1.rewards import create_reward_functions
 from open_r1.utils.callbacks import get_callbacks
-from open_r1.utils.logging import init_wandb_training
+from open_r1.utils.wandb_logging import init_wandb_training
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,6 @@ class GRPOScriptArguments(ScriptArguments):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
     system_prompt_name: str = 'simple'
-    system_prompt: Optional[str] = None
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
