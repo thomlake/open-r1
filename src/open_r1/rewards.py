@@ -2,10 +2,164 @@
 
 import math
 import re
-from typing import Dict
+import string
+from dataclasses import dataclass
+from collections import Counter
 
-from latex2sympy2_extended import NormalizationConfig
-from math_verify import LatexExtractionConfig, parse, verify
+# from latex2sympy2_extended import NormalizationConfig
+# from math_verify import LatexExtractionConfig, parse, verify
+
+
+@dataclass
+class RewardFunction:
+    scale: float = 1.0
+
+    def __call__(
+            self,
+            completions: list[str],
+            **kwargs,
+    ) -> list[float]:
+        raise NotImplementedError
+
+
+class text_processing:
+    @staticmethod
+    def remove_articles(text: str) -> str:
+        return re.sub(r'\b(a|an|the)\b', ' ', text)
+
+    @staticmethod
+    def fix_whitespace(text: str) -> str:
+        return ' '.join(text.split())
+
+    @staticmethod
+    def handle_punctuation(text: str) -> str:
+        exclude = set(string.punctuation + "".join([u"‘", u"’", u"´", u"`"]))
+        return ''.join(ch if ch not in exclude else ' ' for ch in text)
+
+    @staticmethod
+    def lower(text: str) -> str:
+        return text.lower()
+
+    @staticmethod
+    def replace_underscore(text: str) -> str:
+        return text.replace('_', ' ')
+
+
+def normalize_answer(s):
+    """Lower text and remove punctuation, articles and extra whitespace."""
+    s = s.strip()
+    s = text_processing.replace_underscore(s)
+    s = text_processing.lower(s)
+    s = text_processing.handle_punctuation(s)
+    s = text_processing.remove_articles(s)
+    s = text_processing.fix_whitespace(s)
+    s = s.strip()
+    return s
+
+
+def exact_match_score(completion, answer):
+    return completion == answer
+
+
+def f1_score(completion, answer):
+    completion_tokens = completion.split()
+    answer_tokens = answer.split()
+    common = Counter(completion_tokens) & Counter(answer_tokens)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0
+
+    precision = num_same / len(completion_tokens)
+    recall = num_same / len(answer_tokens)
+    f1 = (2 * precision * recall) / (precision + recall)
+    return f1
+
+
+def contains_score(completion, answer):
+    return answer in completion
+
+
+ANSWER_SCORER_REGISTRY = {
+    'exact_match': exact_match_score,
+    'f1': f1_score,
+    'contains': contains_score,
+}
+
+
+def max_over_answers(score_function, completion, answers):
+    scores = []
+    for answer in answers:
+        scores.append(score_function(completion, answer))
+
+    return max(scores)
+
+
+def get_short_answer_accuracy_reward(
+    scale: float = 2.0,
+    score: str = 'exact_match',
+    answer_normalization: bool = True,
+):
+    def short_answer_accuracy_reward(completions, answer, **kwargs) -> list[float]:
+        assert len(completions) == len(answer)
+
+        contents = [completion[0]['content'] for completion in completions]
+        if isinstance(answer[0], str):
+            answer = [[a] for a in answer]
+
+        score_function = ANSWER_SCORER_REGISTRY[score]
+
+        rewards = []
+        for content, answer_aliases in zip(contents, answer):
+            *_, content = content.rsplit('<answer>', 1)
+            content, *_ = content.split('</answer>', 1)
+
+            if answer_normalization:
+                content = normalize_answer(content)
+                answer_aliases = [normalize_answer(a) for a in answer_aliases]
+
+            reward = max_over_answers(score_function, content, answer_aliases)
+            rewards.append(scale * reward)
+
+        return rewards
+
+    return short_answer_accuracy_reward
+
+
+def get_strict_format_reward(scale: float = 0.5):
+    def strict_format_reward(completions, **kwargs):
+        pattern = r'^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>$'
+        contents = [completion[0]['content'] for completion in completions]
+        matches = [re.match(pattern, s, re.DOTALL) for s in contents]
+        return [scale if match else 0.0 for match in matches]
+
+    return strict_format_reward
+
+
+def get_soft_format_reward(scale: float = 0.5):
+    def soft_format_reward(completions, **kwargs):
+        pattern = r'^<think>.*?</think>\s*<answer>.*?</answer>$'
+        contents = [completion[0]['content'] for completion in completions]
+        matches = [re.match(pattern, s, re.DOTALL | re.MULTILINE) for s in contents]
+        return [scale if match else 0.0 for match in matches]
+
+    return soft_format_reward
+
+
+REWARD_FUNCTION_REGISTRY = {
+    'short_answer_accuracy': get_short_answer_accuracy_reward,
+    'strict_format': get_strict_format_reward,
+    'soft_format': get_soft_format_reward,
+}
+
+
+def create_reward_functions(reward_configs: dict[str, dict]):
+    return [
+        REWARD_FUNCTION_REGISTRY[name](**kwargs)
+        for name, kwargs in reward_configs.items()
+    ]
+
+
+# End: TL
 
 
 def accuracy_reward(completions, solution, **kwargs):
@@ -73,79 +227,6 @@ def reasoning_steps_reward(completions, **kwargs):
 
     # Magic nubmer 3 to encourage 3 steps and more, otherwise partial reward
     return [min(1.0, count / 3) for count in matches]
-
-
-def len_reward(completions: list[Dict[str, str]], solutions: list[str], **kwargs) -> float:
-    """Compute length-based rewards to discourage overthinking and promote token efficiency.
-
-    Taken from from the Kimi 1.5 tech report: https://arxiv.org/abs/2501.12599
-
-    Args:
-        completions: List of model completions
-        solutions: List of ground truth solutions
-
-    Returns:
-        List of rewards where:
-        - For correct answers: reward = 0.5 - (len - min_len)/(max_len - min_len)
-        - For incorrect answers: reward = min(0, 0.5 - (len - min_len)/(max_len - min_len))
-    """
-    contents = [completion[0]["content"] for completion in completions]
-
-    # First check correctness of answers
-    correctness = []
-    for content, sol in zip(contents, solutions):
-        gold_parsed = parse(
-            sol,
-            extraction_mode="first_match",
-            extraction_config=[LatexExtractionConfig()],
-        )
-        if len(gold_parsed) == 0:
-            # Skip unparseable examples
-            correctness.append(True)  # Treat as correct to avoid penalizing
-            print("Failed to parse gold solution: ", sol)
-            continue
-
-        answer_parsed = parse(
-            content,
-            extraction_config=[
-                LatexExtractionConfig(
-                    normalization_config=NormalizationConfig(
-                        nits=False,
-                        malformed_operators=False,
-                        basic_latex=True,
-                        equations=True,
-                        boxed=True,
-                        units=True,
-                    ),
-                    boxed_match_priority=0,
-                    try_extract_without_anchor=False,
-                )
-            ],
-            extraction_mode="first_match",
-        )
-        correctness.append(verify(answer_parsed, gold_parsed))
-
-    # Calculate lengths
-    lengths = [len(content) for content in contents]
-    min_len = min(lengths)
-    max_len = max(lengths)
-
-    # If all responses have the same length, return zero rewards
-    if max_len == min_len:
-        return [0.0] * len(completions)
-
-    rewards = []
-    for length, is_correct in zip(lengths, correctness):
-        lambda_val = 0.5 - (length - min_len) / (max_len - min_len)
-
-        if is_correct:
-            reward = lambda_val
-        else:
-            reward = min(0, lambda_val)
-
-        rewards.append(float(reward))
-
-    return rewards
 
 
 def get_cosine_scaled_reward(

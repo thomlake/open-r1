@@ -1,0 +1,65 @@
+# Reward arguments
+
+reward_configs:
+  short_answer_accuracy:
+    scale: 2.0
+    score: exact_match
+    answer_normalization: true
+  strict_format:
+    scale: 0.5
+  soft_format:
+    scale: 0.5
+
+# Data training arguments
+
+# dataset_name: AI-MO/NuminaMath-TIR
+dataset_name: json
+data_files:
+  train: ../data/input/triviaqa/wikipedia-train-1k.jsonl
+  # test: ../data/inputs/triviaqa/wikipedia-dev-1k.jsonl
+
+
+# Num processes is less by 1 as vLLM is using 1 GPU
+num_processes: 7
+
+# Model arguments
+
+model_name_or_path: meta-llama/Llama-3.2-3B-Instruct
+model_revision: main
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# GRPO trainer config
+
+bf16: true
+use_vllm: true
+vllm_device: auto
+vllm_gpu_memory_utilization: 0.7
+do_eval: true
+eval_strategy: steps
+eval_steps: 50
+save_steps: 50
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+learning_rate: 2.0e-05
+log_level: info
+logging_steps: 5
+logging_strategy: steps
+lr_scheduler_type: cosine
+max_prompt_length: 512
+max_completion_length: 2048
+# max_steps: 100
+num_generations: 7
+num_train_epochs: 5
+output_dir: ../output/grpo_qa/triviaqa/Llama-3.2-3B-Instruct--00
+overwrite_output_dir: true
+per_device_eval_batch_size: 32
+per_device_train_batch_size: 4
+push_to_hub: false
+report_to:
+- tensorboard
+save_strategy: "steps"
+seed: 42
+warmup_ratio: 0.1
