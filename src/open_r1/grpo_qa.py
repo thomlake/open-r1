@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import os
 import sys
@@ -22,14 +23,14 @@ import datasets
 import torch
 import transformers
 from datasets import load_dataset
-from transformers import set_seed, AutoTokenizer
+from transformers import set_seed, AutoTokenizer, TrainerCallback
 from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
 from open_r1.configs import GRPOConfig
 from open_r1.prompts import get_system_prompt
 from open_r1.rewards import create_reward_functions
-from open_r1.utils.callbacks import get_callbacks
+from open_r1.utils.callbacks import get_callbacks, SaveConfigCallback
 from open_r1.utils.wandb_logging import init_wandb_training
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ class GRPOScriptArguments(ScriptArguments):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
     system_prompt_name: str = 'simple'
+    system_prompt_from_name: Optional[str] = None
+    pad_token: Optional[str] = '<|reserved_special_token_0|>'
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
@@ -73,22 +76,13 @@ class GRPOScriptArguments(ScriptArguments):
             self.system_prompt = get_system_prompt(self.system_prompt_name)
 
 
-def is_primary():
-    return int(os.environ.get('LOCAL_RANK', 0)) == 0
-
-
 def main(
         script_args: GRPOScriptArguments,
         training_args: GRPOConfig,
         model_args: ModelConfig,
 ):
-    if os.path.exists(training_args.output_dir):
+    if os.path.exists(training_args.output_dir) and not training_args.resume_from_checkpoint:
         raise ValueError(f'output_dir already exists: {training_args.output_dir}')
-
-    if is_primary():
-        print('!!! PRIMARY PROCESS !!!', training_args.output_dir)
-
-    return
 
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -121,6 +115,7 @@ def main(
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
+
     if last_checkpoint is not None and training_args.resume_from_checkpoint is None:
         logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
 
@@ -178,21 +173,34 @@ def main(
     training_args.model_init_kwargs = model_kwargs
 
     tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = 'left'
+    if tokenizer.pad_token is None and script_args.pad_token:
+        tokenizer.pad_token = script_args.pad_token
+
+    if tokenizer.pad_token_id is None:
+        raise ValueError(f'tokenizer missing pad token! {tokenizer.pad_token=}, {script_args.pad_token=}')
 
     #############################
     # Initialize the GRPO trainer
     #############################
+
+    save_config_callback = SaveConfigCallback(
+        name='grpo_qa_config',
+        config={
+            'script_args': script_args.to_dict(),
+            'training_args': training_args.to_dict(),
+            'model_args': model_args.to_dict(),
+        }
+    )
+
     trainer = GRPOTrainer(
         model=model_args.model_name_or_path,
         reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=dataset['train'],
-        eval_dataset=dataset['test'] if training_args.eval_strategy != "no" else None,
+        eval_dataset=dataset['test'] if training_args.eval_strategy != 'no' else None,
         peft_config=get_peft_config(model_args),
         processing_class=tokenizer,
-        callbacks=get_callbacks(training_args, model_args),
+        callbacks=[save_config_callback, *get_callbacks(training_args, model_args)],
     )
 
     ###############

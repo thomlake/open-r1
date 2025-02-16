@@ -14,15 +14,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import os
 import subprocess
 from typing import List
 
 from transformers import TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
+from transformers.trainer_utils import is_main_process
 from transformers.training_args import TrainingArguments
 
 from .evaluation import run_benchmark_jobs
 from .hub import push_to_hub_revision
+
+
+class SaveConfigCallback(TrainerCallback):
+    def __init__(self, *, name: str, config):
+        self.name = name
+        self.config = config
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        """Save configuration at the start of training on the primary process."""
+        if is_main_process():
+            os.makedirs(args.output_dir, exist_ok=True)
+            config_path = os.path.join(args.output_dir, f'{self.name}.json')
+            with open(config_path, 'w') as fp:
+                json.dump(self.config, fp, ensure_ascii=False, indent=4)
+
+            print(f"Training configuration saved to {config_path}")
 
 
 def is_slurm_available() -> bool:
