@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import os
 import sys
@@ -23,7 +22,7 @@ import datasets
 import torch
 import transformers
 from datasets import load_dataset
-from transformers import set_seed, AutoTokenizer, TrainerCallback
+from transformers import set_seed, AutoTokenizer
 from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
@@ -186,9 +185,9 @@ def main(
     save_config_callback = SaveConfigCallback(
         name='grpo_qa_config',
         config={
-            'script_args': script_args.to_dict(),
-            'training_args': training_args.to_dict(),
-            'model_args': model_args.to_dict(),
+            'script_args': asdict(script_args),
+            'training_args': asdict(training_args),
+            'model_args': asdict(model_args),
         }
     )
 
