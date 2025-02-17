@@ -1,8 +1,8 @@
 
 SIMPLE_SYSTEM_PROMPT = """Respond in the following format:
-<reasoning>
+<think>
 ...
-</reasoning>
+</think>
 <answer>
 ...
 </answer>
