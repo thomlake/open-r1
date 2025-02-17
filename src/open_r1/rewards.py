@@ -144,6 +144,7 @@ def get_soft_format_reward(scale: float = 0.5):
         for i, (content, match_result) in enumerate(zip(contents, matches)):
             print(f'[{i=}]\n{content=}\n{match_result=}\n' + 20 * '-')
 
+        raise ValueError
         return [scale if match else 0.0 for match in matches]
 
     return soft_format_reward
