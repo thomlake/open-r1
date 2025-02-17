@@ -45,7 +45,6 @@ class GRPOScriptArguments(ScriptArguments):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
     system_prompt_name: str = 'simple'
-    system_prompt_from_name: Optional[str] = None
     pad_token: Optional[str] = '<|reserved_special_token_0|>'
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
@@ -69,10 +68,6 @@ class GRPOScriptArguments(ScriptArguments):
             'help': 'Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".'
         },
     )
-
-    def __post_init__(self):
-        if self.system_prompt_name:
-            self.system_prompt = get_system_prompt(self.system_prompt_name)
 
 
 def main(
@@ -133,11 +128,13 @@ def main(
     # Setup data
     logger.info("*** Load data ***")
 
+    system_prompt = get_system_prompt(script_args.system_prompt_name)
+
     # Format into conversation
     def make_conversation(example):
         return {
             'prompt': [
-                {'role': 'system', 'content': script_args.system_prompt},
+                {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': example[script_args.question_key]},
             ],
             'answer': example[script_args.answer_key],
@@ -188,6 +185,9 @@ def main(
             'script_args': asdict(script_args),
             'training_args': asdict(training_args),
             'model_args': asdict(model_args),
+            'runtime': {
+                'system_prompt': system_prompt,
+            }
         }
     )
 
