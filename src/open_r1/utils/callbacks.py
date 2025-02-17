@@ -21,7 +21,6 @@ from typing import List
 
 from transformers import TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
-from transformers.trainer_utils import is_main_process
 from transformers.training_args import TrainingArguments
 
 from .evaluation import run_benchmark_jobs
@@ -39,7 +38,7 @@ class SaveConfigCallback(TrainerCallback):
             os.makedirs(args.output_dir, exist_ok=True)
             config_path = os.path.join(args.output_dir, f'{self.name}.json')
             with open(config_path, 'w') as fp:
-                json.dump(self.config, fp, ensure_ascii=False, indent=4)
+                json.dump(self.config, fp, ensure_ascii=False, indent=4, default=str)
 
             print(f"Training configuration saved to {config_path}")
 
