@@ -35,7 +35,7 @@ class SaveConfigCallback(TrainerCallback):
 
     def on_train_begin(self, args, state, control, **kwargs):
         """Save configuration at the start of training on the primary process."""
-        if is_main_process():
+        if state.is_local_process_zero:
             os.makedirs(args.output_dir, exist_ok=True)
             config_path = os.path.join(args.output_dir, f'{self.name}.json')
             with open(config_path, 'w') as fp:
