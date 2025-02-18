@@ -3,23 +3,10 @@
 import math
 import re
 import string
-from dataclasses import dataclass
 from collections import Counter
 
-# from latex2sympy2_extended import NormalizationConfig
-# from math_verify import LatexExtractionConfig, parse, verify
-
-
-@dataclass
-class RewardFunction:
-    scale: float = 1.0
-
-    def __call__(
-            self,
-            completions: list[str],
-            **kwargs,
-    ) -> list[float]:
-        raise NotImplementedError
+from latex2sympy2_extended import NormalizationConfig
+from math_verify import LatexExtractionConfig, parse, verify
 
 
 class text_processing:
@@ -150,10 +137,81 @@ def get_soft_format_reward(scale: float = 0.5):
     return soft_format_reward
 
 
+def get_math_accuracy_reward(scale: float = 2.0, extraction_mode: str = 'first_match'):
+    def math_accuracy_reward(completions, answer, **kwargs):
+        """Reward function that checks if the completion is the same as the ground truth."""
+        contents = [completion[0]["content"] for completion in completions]
+        rewards = []
+        for content, gold_answer in zip(contents, answer):
+            gold_parsed = parse(gold_answer, extraction_mode=extraction_mode)
+            if len(gold_parsed) != 0:
+                content_parsed = parse(content, extraction_mode=extraction_mode)
+                # Reward 1 if the content is the same as the ground truth, 0 otherwise
+                reward = float(verify(content_parsed, gold_parsed))
+            else:
+                # If the gold solution is not parseable, we reward 1 to skip this example
+                reward = 1.0
+                print("Failed to parse gold solution: ", gold_answer)
+
+            rewards.append(scale * reward)
+
+        return rewards
+
+    return math_accuracy_reward
+
+
+def get_math_latex_accuracy_reward(scale: float = 2.0):
+    def math_latex_accuracy_reward(completions, answer, **kwargs):
+        """Reward function that checks if the completion is the same as the ground truth."""
+        contents = [completion[0]["content"] for completion in completions]
+        rewards = []
+        for content, sol in zip(contents, answer):
+            gold_parsed = parse(
+                sol,
+                extraction_mode="first_match",
+                extraction_config=[LatexExtractionConfig()],
+            )
+            if len(gold_parsed) != 0:
+                # We require the answer to be provided in correct latex (no malformed operators)
+                answer_parsed = parse(
+                    content,
+                    extraction_config=[
+                        LatexExtractionConfig(
+                            normalization_config=NormalizationConfig(
+                                nits=False,
+                                malformed_operators=False,
+                                basic_latex=True,
+                                equations=True,
+                                boxed="all",
+                                units=True,
+                            ),
+                            # Ensures that boxed is tried first
+                            boxed_match_priority=0,
+                            try_extract_without_anchor=False,
+                        )
+                    ],
+                    extraction_mode="first_match",
+                )
+                # Reward 1 if the content is the same as the ground truth, 0 otherwise
+                reward = float(verify(answer_parsed, gold_parsed))
+            else:
+                # If the gold solution is not parseable, we reward 1 to skip this example
+                reward = 1.0
+                print("Failed to parse gold solution: ", sol)
+
+            rewards.append(scale * reward)
+
+        return rewards
+
+    return math_latex_accuracy_reward
+
+
 REWARD_FUNCTION_REGISTRY = {
-    'short_answer_accuracy': get_short_answer_accuracy_reward,
     'strict_format': get_strict_format_reward,
     'soft_format': get_soft_format_reward,
+    'short_answer_accuracy': get_short_answer_accuracy_reward,
+    'math_accuracy': get_math_accuracy_reward,
+    'math_latex_accuracy': get_math_latex_accuracy_reward,
 }
 
 
@@ -162,51 +220,6 @@ def create_reward_functions(reward_configs: dict[str, dict]):
         REWARD_FUNCTION_REGISTRY[name](**kwargs)
         for name, kwargs in reward_configs.items()
     ]
-
-
-# End: TL
-
-
-def accuracy_reward(completions, solution, **kwargs):
-    """Reward function that checks if the completion is the same as the ground truth."""
-    contents = [completion[0]["content"] for completion in completions]
-    rewards = []
-    for content, sol in zip(contents, solution):
-        gold_parsed = parse(
-            sol,
-            extraction_mode="first_match",
-            extraction_config=[LatexExtractionConfig()],
-        )
-        if len(gold_parsed) != 0:
-            # We require the answer to be provided in correct latex (no malformed operators)
-            answer_parsed = parse(
-                content,
-                extraction_config=[
-                    LatexExtractionConfig(
-                        normalization_config=NormalizationConfig(
-                            nits=False,
-                            malformed_operators=False,
-                            basic_latex=True,
-                            equations=True,
-                            boxed="all",
-                            units=True,
-                        ),
-                        # Ensures that boxed is tried first
-                        boxed_match_priority=0,
-                        try_extract_without_anchor=False,
-                    )
-                ],
-                extraction_mode="first_match",
-            )
-            # Reward 1 if the content is the same as the ground truth, 0 otherwise
-            reward = float(verify(answer_parsed, gold_parsed))
-        else:
-            # If the gold solution is not parseable, we reward 1 to skip this example
-            reward = 1.0
-            print("Failed to parse gold solution: ", sol)
-        rewards.append(reward)
-
-    return rewards
 
 
 def format_reward(completions, **kwargs):

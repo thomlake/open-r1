@@ -1,5 +1,4 @@
 # Reward arguments
-
 reward_configs:
   short_answer_accuracy:
     scale: 2.0
@@ -11,13 +10,22 @@ reward_configs:
     scale: 0.5
 
 # Data training arguments
-
-# dataset_name: AI-MO/NuminaMath-TIR
 dataset_name: json
 data_files:
   train: ../data/input/triviaqa/wikipedia-train-1k.jsonl
   # test: ../data/inputs/triviaqa/wikipedia-dev-1k.jsonl
+question_key: question
+answer_key: answer_aliases
 
+system_prompt: |-
+  You are a helpful AI assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format:
+
+  <think>
+  ...
+  </think>
+  <answer>
+  ...
+  </answer>
 
 # Num processes is less by 1 as vLLM is using 1 GPU
 num_processes: 7

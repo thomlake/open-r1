@@ -15,7 +15,7 @@
 import logging
 import os
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 import datasets
@@ -27,7 +27,6 @@ from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
 from open_r1.configs import GRPOConfig
-from open_r1.prompts import get_system_prompt
 from open_r1.rewards import create_reward_functions
 from open_r1.utils.callbacks import get_callbacks, SaveConfigCallback
 from open_r1.utils.wandb_logging import init_wandb_training
@@ -44,30 +43,12 @@ class GRPOScriptArguments(ScriptArguments):
         reward_configs (`dict[str, dict]`):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
-    system_prompt_name: str = 'simple'
+    reward_configs: dict
     pad_token: Optional[str] = '<|reserved_special_token_0|>'
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
-    answer_key: str = 'answer_aliases'
-    reward_configs: dict[str, dict] = field(
-        default_factory=lambda: {
-            'short_answer_accuracy': {
-                'scale': 2.0,
-                'score': 'exact_match',
-                'normalize_answer': True,
-            },
-            'strict_format': {
-                'scale': 0.5,
-            },
-            'soft_format': {
-                'scale': 0.5,
-            },
-        },
-        metadata={
-            'help': 'Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".'
-        },
-    )
+    answer_key: str = 'answer'
 
 
 def main(
@@ -116,25 +97,24 @@ def main(
     if "wandb" in training_args.report_to:
         init_wandb_training(training_args)
 
-    # Load the dataset
-    dataset = load_dataset(
-        script_args.dataset_name,
-        data_files=script_args.data_files,
-    )
-
     # Get reward functions
     reward_funcs = create_reward_functions(script_args.reward_configs)
 
     # Setup data
     logger.info("*** Load data ***")
 
-    system_prompt = get_system_prompt(script_args.system_prompt_name)
+    # Load the dataset
+    dataset = load_dataset(
+        script_args.dataset_name,
+        name=script_args.dataset_config,
+        data_files=script_args.data_files,
+    )
 
     # Format into conversation
     def make_conversation(example):
         return {
             'prompt': [
-                {'role': 'system', 'content': system_prompt},
+                {'role': 'system', 'content': training_args.system_prompt},
                 {'role': 'user', 'content': example[script_args.question_key]},
             ],
             'answer': example[script_args.answer_key],
@@ -142,12 +122,12 @@ def main(
 
     dataset = dataset.map(make_conversation)
     for split in list(dataset.keys()):
-        column_names = dataset[split].column_names
-        column_names = [name for name in column_names if name not in ('prompt', 'answer')]
+        column_names = [name for name in dataset[split].column_names if name not in ('prompt', 'answer')]
         dataset[split] = dataset[split].remove_columns(column_names)
 
-    if 'test' not in dataset:
-        dataset = dataset['train'].train_test_split(
+    if script_args.dataset_test_split is None or script_args.dataset_test_split not in dataset:
+        logger.info("Splitting train data")
+        dataset = dataset[script_args.dataset_train_split].train_test_split(
             test_size=script_args.test_size,
             shuffle=False,
         )
@@ -185,9 +165,6 @@ def main(
             'script_args': asdict(script_args),
             'training_args': asdict(training_args),
             'model_args': asdict(model_args),
-            'runtime': {
-                'system_prompt': system_prompt,
-            }
         }
     )
 
@@ -195,8 +172,8 @@ def main(
         model=model_args.model_name_or_path,
         reward_funcs=reward_funcs,
         args=training_args,
-        train_dataset=dataset['train'],
-        eval_dataset=dataset['test'] if training_args.eval_strategy != 'no' else None,
+        train_dataset=dataset[script_args.dataset_train_split],
+        eval_dataset=dataset[script_args.dataset_test_split] if training_args.eval_strategy != 'no' else None,
         peft_config=get_peft_config(model_args),
         processing_class=tokenizer,
         callbacks=[save_config_callback, *get_callbacks(training_args, model_args)],
