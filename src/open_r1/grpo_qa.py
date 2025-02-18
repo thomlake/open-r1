@@ -129,12 +129,17 @@ def main(
         column_names = [name for name in dataset[split].column_names if name not in ('prompt', 'answer')]
         dataset[split] = dataset[split].remove_columns(column_names)
 
-    if script_args.dataset_test_split is None or script_args.dataset_test_split not in dataset:
+    train_split = script_args.dataset_train_split
+    test_split = script_args.dataset_test_split
+    run_eval = training_args.eval_strategy != 'no'
+    if run_eval and (test_split is None or test_split not in dataset):
         logger.info("Splitting train data")
-        dataset = dataset[script_args.dataset_train_split].train_test_split(
+        dataset = dataset[train_split].train_test_split(
             test_size=script_args.test_size,
             shuffle=False,
         )
+        train_split = 'train'
+        test_split = 'test'
 
     for k, d in dataset.items():
         logger.info(f"{k} size: {len(d)}")
@@ -176,8 +181,8 @@ def main(
         model=model_args.model_name_or_path,
         reward_funcs=reward_funcs,
         args=training_args,
-        train_dataset=dataset[script_args.dataset_train_split],
-        eval_dataset=dataset[script_args.dataset_test_split] if training_args.eval_strategy != 'no' else None,
+        train_dataset=dataset[train_split],
+        eval_dataset=dataset[test_split] if run_eval else None,
         peft_config=get_peft_config(model_args),
         processing_class=tokenizer,
         callbacks=[save_config_callback, *get_callbacks(training_args, model_args)],
