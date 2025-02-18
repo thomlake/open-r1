@@ -43,12 +43,16 @@ class GRPOScriptArguments(ScriptArguments):
         reward_configs (`dict[str, dict]`):
             Dict of reward functions and arguments. Valid keys: "short_answer_accuracy", "strict_format", "soft_format".
     """
-    reward_configs: dict
+    reward_configs: Optional[dict] = None
     pad_token: Optional[str] = '<|reserved_special_token_0|>'
     data_files: Optional[dict[str, str]] = None
     test_size: float = 0.05
     question_key: str = 'question'
     answer_key: str = 'answer'
+
+    def __post_init__(self):
+        if self.reward_configs is None:
+            raise ValueError('reward_configs must be provided!')
 
 
 def main(
