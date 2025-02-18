@@ -59,7 +59,7 @@ max_completion_length: 2048
 # max_steps: 100
 num_generations: 7
 num_train_epochs: 5
-output_dir: ../output/grpo_qa/triviaqa/Llama-3.2-3B-Instruct--00
+output_dir: ../output/grpo_qa/gsm8k/Llama-3.2-3B-Instruct--00
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 4
