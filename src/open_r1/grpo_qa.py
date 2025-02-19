@@ -60,8 +60,12 @@ def main(
         training_args: GRPOConfig,
         model_args: ModelConfig,
 ):
-    if os.path.exists(training_args.output_dir) and not training_args.resume_from_checkpoint:
-        raise ValueError(f'output_dir already exists: {training_args.output_dir}')
+    if os.path.exists(training_args.output_dir):
+        if not training_args.resume_from_checkpoint:
+            raise ValueError(f'output_dir already exists: {training_args.output_dir}')
+    else:
+        if training_args.resume_from_checkpoint:
+            raise ValueError(f'output_dir does not exist: {training_args.output_dir}')
 
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -168,14 +172,17 @@ def main(
     # Initialize the GRPO trainer
     #############################
 
-    save_config_callback = SaveConfigCallback(
-        name='grpo_qa_config',
-        config={
-            'script_args': asdict(script_args),
-            'training_args': asdict(training_args),
-            'model_args': asdict(model_args),
-        }
-    )
+    callbacks = get_callbacks(training_args, model_args)
+    if not training_args.resume_from_checkpoint:
+        save_config_callback = SaveConfigCallback(
+            name='grpo_qa_config',
+            config={
+                'script_args': asdict(script_args),
+                'training_args': asdict(training_args),
+                'model_args': asdict(model_args),
+            }
+        )
+        callbacks = [save_config_callback, *callbacks]
 
     trainer = GRPOTrainer(
         model=model_args.model_name_or_path,
@@ -185,7 +192,7 @@ def main(
         eval_dataset=dataset[test_split] if run_eval else None,
         peft_config=get_peft_config(model_args),
         processing_class=tokenizer,
-        callbacks=[save_config_callback, *get_callbacks(training_args, model_args)],
+        callbacks=callbacks,
     )
 
     ###############
